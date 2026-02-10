@@ -1,0 +1,57 @@
+name: upstream-sync
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily at 06:00 UTC.
+    - cron: "0 6 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/openai/codex.git
+          git fetch upstream main --no-tags
+
+      - name: Merge upstream/main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git switch -C sync/upstream-main
+          git merge --no-ff --no-commit upstream/main
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          branch: sync/upstream-main
+          base: main
+          delete-branch: true
+          title: "Sync upstream/main"
+          body: |
+            Automated sync from upstream/main.
+            If this PR has conflicts, resolve them manually and re-run this workflow.
+          commit-message: "chore(sync): merge upstream/main"
