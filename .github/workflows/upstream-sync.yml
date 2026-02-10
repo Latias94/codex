@@ -23,13 +23,6 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Configure git
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
       - name: Fetch upstream
         shell: bash
         run: |
@@ -37,21 +30,44 @@ jobs:
           git remote add upstream https://github.com/openai/codex.git
           git fetch upstream main --no-tags
 
-      - name: Merge upstream/main
+      - name: Update sync branch
         shell: bash
         run: |
           set -euo pipefail
-          git switch -C sync/upstream-main
-          git merge --no-ff --no-commit upstream/main
+          base="$(git rev-parse HEAD)"
+          upstream="$(git rev-parse upstream/main)"
 
-      - name: Open pull request
-        uses: peter-evans/create-pull-request@v8
-        with:
-          branch: sync/upstream-main
-          base: main
-          delete-branch: true
-          title: "Sync upstream/main"
-          body: |
-            Automated sync from upstream/main.
-            If this PR has conflicts, resolve them manually and re-run this workflow.
-          commit-message: "chore(sync): merge upstream/main"
+          if [[ "${base}" == "${upstream}" ]]; then
+            echo "Already up to date with upstream/main"
+            exit 0
+          fi
+
+          git branch -f sync/upstream-main upstream/main
+          git push origin sync/upstream-main --force
+
+      - name: Create or reuse pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          existing_pr_number="$(
+            gh pr list \
+              --state open \
+              --head sync/upstream-main \
+              --base main \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+
+          if [[ -n "${existing_pr_number}" ]]; then
+            echo "PR #${existing_pr_number} already open"
+            exit 0
+          fi
+
+          gh pr create \
+            --head sync/upstream-main \
+            --base main \
+            --title "Sync upstream/main" \
+            --body "Automated sync from upstream/main."
